@@ -9,16 +9,16 @@ import Concur.React.Props (unsafeTargetValue)
 import Concur.React.Props as P
 import Concur.React.Run (runWidgetInDom)
 import Control.Alt ((<|>))
-import Control.Monad.Rec.Class (forever)
-import Control.MultiAlternative (orr)
-import Data.Array (length, modifyAt, snoc, zip, (..))
-import Data.Array (deleteAt)
-import Data.DateTime.Instant (instant)
+import Data.Array (deleteAt, elem, length, modifyAt, snoc, zip, (..))
+import Data.Foldable (sum)
+import Data.Formatter.Number (Formatter(..), format)
 import Data.Generic.Rep (class Generic)
 import Data.Generic.Rep.Show (genericShow)
-import Data.Maybe (fromMaybe, fromMaybe')
+import Data.Int (toNumber)
+import Data.Maybe (fromMaybe')
 import Data.Number (fromString)
 import Data.Set as S
+import Data.Set.NonEmpty as NS
 import Data.Tuple (Tuple(..))
 import Effect (Effect)
 import Effect.Class (liftEffect)
@@ -29,11 +29,19 @@ import Partial.Unsafe (unsafeCrashWith)
 type Name = String
 type Money = Number
 
-data Transaction = Transaction
-    { source :: Name
-    , targets :: S.Set Name
-    , amount :: String
-    , note :: String
+type EditedTransType =         { source :: Name
+        , targets :: S.Set Name
+        , amount :: String
+        , note :: String
+        }
+
+data Transaction
+    = EditedTrans EditedTransType
+    | FinalTrans
+        { source :: Name
+        , targets :: NS.NonEmptySet Name
+        , amount :: Number
+        , note :: String
     }
 
 data TableRowEvent
@@ -42,6 +50,7 @@ data TableRowEvent
     | SetAmount String
     | SetNote String
     | DeleteRow
+    | FinalizeRow
 
 data TableEvent
     = RowEvent Int TableRowEvent
@@ -89,45 +98,94 @@ tableHeader names = firstRow <|> secondRow where
 
 
 tableRow :: Array Name -> Transaction -> Widget HTML TableRowEvent
-tableRow names (Transaction transaction) = D.tr []
-    $ [ D.td [] [ DeleteRow <$ D.button [P.onClick] [ D.text "−" ] ] ]
+tableRow names (EditedTrans transaction) = D.tr []
+    $ [ D.td [] [
+        DeleteRow <$ D.button [P.onClick] [ D.text "−" ]
+        <|> FinalizeRow <$ D.button [P.onClick] [ D.text "v"] ] ]
     <> map showRadio names
     <> [ D.td [] [ D.input [ P._type "text", P.value transaction.amount, (SetAmount <<< unsafeTargetValue) <$> P.onChange ] ] ]
     <> map showCheckbox names
     <> [ D.td [] [ D.input [ P._type "text", P.value transaction.note, (SetNote <<< unsafeTargetValue) <$> P.onChange ] ] ]
-     where
+    where
     showRadio name =
         SetSource name <$ D.td []
             [ D.input [ P._type "radio", P.onChange, P.checked (name == transaction.source) ] ]
     showCheckbox name =
         ToggleTarget name <$ D.td []
             [ D.input [ P._type "checkbox", P.onChange, P.checked (S.member name transaction.targets)  ] ]
+tableRow names (FinalTrans transaction) = D.tr []
+    $ [ D.td [] [ ] ]
+    <> map showRadio names
+    <> [ D.td [] [ D.text $ formatCurrency transaction.amount ] ]
+    <> map showCheckbox names
+    <> [ D.td [] [ D.text transaction.note ] ]
+    where
+    showRadio name =
+        D.td []
+            [ D.input [ P._type "radio", P.disabled true, P.checked (name == transaction.source) ] ]
+    showCheckbox name =
+        D.td []
+            [ D.input [ P._type "checkbox", P.disabled true, P.checked (NS.member name transaction.targets)  ] ]
+
+
+results :: ∀ a. Array Name -> Array Transaction -> Widget HTML a
+results names transactions = D.div [] [
+    D.table [] (
+        [ D.tr []
+            [ D.th [] [ D.text "Name" ]
+            , D.th [] [ D.text "Paid" ]
+            , D.th [] [ D.text "Received" ]
+            , D.th [] [ D.text "Must get from others" ]
+            ]
+        ] <> map resultRow names
+    )
+    ] where
+    resultRow name = D.tr []
+        [ D.td [] [ D.text name ]
+        , D.td [] [ D.text <<< formatCurrency $ paid ]
+        , D.td [] [ D.text <<< formatCurrency $ received ]
+        , D.td [] [ D.text <<< formatCurrency $ paid - received ]
+        ] where
+        paid     = sum <<< (flip map transactions) $ \t -> case t of
+            EditedTrans _ -> 0.0
+            FinalTrans ft -> if ft.source == name then ft.amount else 0.0
+        received = sum <<< (flip map transactions) $ \t -> case t of
+            EditedTrans _ -> 0.0
+            FinalTrans ft -> if elem name ft.targets then ft.amount / toNumber (NS.size ft.targets) else 0.0
 
 
 initialState :: Array Transaction
 initialState = [ defaultTransaction ]
 
 defaultTransaction :: Transaction
-defaultTransaction = Transaction
-    { source: "Pavel"
-    , targets: S.fromFoldable ["Káťa", "Péťa"]
-    , amount: "200.0"
+defaultTransaction = EditedTrans
+    { source: "Evča"
+    , targets: S.empty
+    , amount: "200.00"
     , note: "Testing transaction"
     }
+
+
+formatCurrency :: Number -> String
+formatCurrency = format (Formatter { comma: false, before: 0, after: 2, abbreviations: false, sign: false })
 
 
 main :: Effect Unit
 main = runWidgetInDom "root" $ go initialState where
     go :: ∀ a. Array Transaction -> Widget HTML a
     go state = do
-        event <- table ["Pavel", "Péťa", "Káťa"] state
+        let names = ["Evča", "Pavel", "Jíťa", "Péťa", "Stano"]
+        event <- table names state <|> results names state
+
         liftEffect $ log (show event)
+
         case event of
-            RowEvent i (SetSource name)    -> go $ unsafeModifyAt i (\(Transaction t) -> Transaction (t { source=name })) state
-            RowEvent i (ToggleTarget name) -> go $ unsafeModifyAt i (\(Transaction t) -> Transaction (t { targets=toggleSetItem name t.targets })) state
-            RowEvent i (SetAmount s)       -> go $ unsafeModifyAt i (\(Transaction t) -> Transaction (t { amount=s })) state
-            RowEvent i (SetNote s)         -> go $ unsafeModifyAt i (\(Transaction t) -> Transaction (t { note=s })) state
+            RowEvent i (SetSource name)    -> go $ unsafeModifyAt i (unsafeMutate (\et -> et { source=name })) state
+            RowEvent i (ToggleTarget name) -> go $ unsafeModifyAt i (unsafeMutate (\et -> et { targets=toggleSetItem name et.targets })) state
+            RowEvent i (SetAmount s)       -> go $ unsafeModifyAt i (unsafeMutate (\et -> et { amount=s })) state
+            RowEvent i (SetNote s)         -> go $ unsafeModifyAt i (unsafeMutate (\et -> et { note=s })) state
             RowEvent i DeleteRow           -> go $ unsafeDeleteAt i state
+            RowEvent i FinalizeRow         -> go $ unsafeModifyAt i unsafeFinalize state
             AddRowEvent -> go (snoc state defaultTransaction)
 
     toggleSetItem :: ∀ a. Ord a => a -> S.Set a -> S.Set a
@@ -140,3 +198,16 @@ main = runWidgetInDom "root" $ go initialState where
     -- | `deleteAt` variant that crashes if the index is out-of-bounds
     unsafeDeleteAt :: ∀ a. Int -> Array a -> Array a
     unsafeDeleteAt i a = fromMaybe' (\_ -> unsafeCrashWith "Out of bounds delete.") $ deleteAt i a
+
+    unsafeMutate :: (EditedTransType -> EditedTransType) -> Transaction -> Transaction
+    unsafeMutate f (EditedTrans t) = EditedTrans (f t)
+    unsafeMutate _ (FinalTrans _) = unsafeCrashWith "Edited non-editable transaction."
+
+    unsafeFinalize :: Transaction -> Transaction
+    unsafeFinalize (EditedTrans t) = FinalTrans
+        { source: t.source
+        , targets: fromMaybe' (\_ -> unsafeCrashWith "Tried to finalize without targets.") $ NS.fromSet t.targets
+        , amount: fromMaybe' (\_ -> unsafeCrashWith "Tried to finalize with non-numeric amount.") $ fromString t.amount
+        , note: t.note
+    }
+    unsafeFinalize (FinalTrans _) = unsafeCrashWith "Finalized already-finalized transaction."
