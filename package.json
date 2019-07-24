@@ -1,5 +1,5 @@
 {
-  "name": "purescript-concur-starter",
+  "name": "accounting",
   "version": "0.1.0",
   "description": "A Starter kit for Purescript-Concur. Uses Spago and Parcel.",
   "main": "index.js",
