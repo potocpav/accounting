@@ -51,6 +51,7 @@ data TableRowEvent
     | SetNote String
     | DeleteRow
     | FinalizeRow
+    | EditRow
 
 data TableEvent
     = RowEvent Int TableRowEvent
@@ -73,11 +74,15 @@ hello = do
 
 
 table :: Array Name -> Array Transaction -> Widget HTML TableEvent
-table names transactions = do
-    D.table []
-        $ [ tableHeader  names ]
-        <> map (\(Tuple i x) -> RowEvent i <$> tableRow names x) (zip (0 .. length transactions) transactions)
-        <> [ D.tr [] [ D.td [] [ AddRowEvent <$ D.button [P.onClick] [ D.text "+" ] ] ] ]
+table names transactions = D.div_ [P.className "container"] $
+    D.table [ P.className "table table-striped" ]
+        [ D.thead' [tableHeader names]
+        , D.tbody' $
+            map (\(Tuple i x) -> RowEvent i <$> tableRow names x) (zip (0 .. length transactions) transactions)
+        , D.thead' [ D.tr [] [ D.td []
+            [ AddRowEvent <$ D.button [ P.className "btn btn-primary", P.onClick ] [ D.text "+" ] ]
+            ] ]
+        ]
 
 
 tableHeader :: ∀ a. Array Name -> Widget HTML a
@@ -91,30 +96,39 @@ tableHeader names = firstRow <|> secondRow where
         ]
     secondRow = D.tr []
         $ [ D.th [] [] ]
-        <> map (\n -> D.td [] [D.text n]) names
+        <> map (\n -> D.th [P.style {transform: "rotate(-45.0deg)"}] [D.text n]) names
         <> [ D.th [] [] ]
-        <> map (\n -> D.td [] [D.text n]) names
+        <> map (\n -> D.th [P.style {transform: "rotate(-45.0deg)"}] [D.text n]) names
         <> [ D.td [] [] ]
 
 
 tableRow :: Array Name -> Transaction -> Widget HTML TableRowEvent
 tableRow names (EditedTrans transaction) = D.tr []
     $ [ D.td [] [
-        DeleteRow <$ D.button [P.onClick] [ D.text "−" ]
-        <|> FinalizeRow <$ D.button [P.onClick] [ D.text "v"] ] ]
+        D.div [P.className "btn-group", P.role "group"]
+            [ FinalizeRow <$ D.button [P.className "btn btn-primary", P.onClick] [ D.text "✔"]
+            ,   DeleteRow <$ D.button [P.className "btn btn-outline-secondary", P.onClick] [ D.text "✗" ]
+            ]
+        ]
+    ]
     <> map showRadio names
-    <> [ D.td [] [ D.input [ P._type "text", P.value transaction.amount, (SetAmount <<< unsafeTargetValue) <$> P.onChange ] ] ]
+    <> [ D.td' [ D.input [ P.className "form-control", P._type "text", P.value transaction.amount, (SetAmount <<< unsafeTargetValue) <$> P.onChange ] ] ]
     <> map showCheckbox names
-    <> [ D.td [] [ D.input [ P._type "text", P.value transaction.note, (SetNote <<< unsafeTargetValue) <$> P.onChange ] ] ]
+    <> [ D.td' [ D.input [ P.className "form-control", P._type "text", P.value transaction.note, (SetNote <<< unsafeTargetValue) <$> P.onChange ] ] ]
     where
     showRadio name =
-        SetSource name <$ D.td []
-            [ D.input [ P._type "radio", P.onChange, P.checked (name == transaction.source) ] ]
+        D.td [ SetSource name <$ P.onClick ]
+            [ D.input [ P._type "radio", SetSource name <$ P.onChange, P.checked (name == transaction.source) ] ]
     showCheckbox name =
-        ToggleTarget name <$ D.td []
-            [ D.input [ P._type "checkbox", P.onChange, P.checked (S.member name transaction.targets)  ] ]
+        D.td [ ToggleTarget name <$ P.onClick ]
+            [ D.input [ P._type "checkbox", ToggleTarget name <$ P.onChange, P.checked (S.member name transaction.targets)  ] ]
 tableRow names (FinalTrans transaction) = D.tr []
-    $ [ D.td [] [ ] ]
+    $ [ D.td [] [
+        D.div [P.className "btn-group", P.role "group"]
+            [ EditRow <$ D.button [P.className "btn btn-primary", P.onClick] [ D.text "✎"]
+            ]
+        ]
+    ]
     <> map showRadio names
     <> [ D.td [] [ D.text $ formatCurrency transaction.amount ] ]
     <> map showCheckbox names
@@ -129,8 +143,8 @@ tableRow names (FinalTrans transaction) = D.tr []
 
 
 results :: ∀ a. Array Name -> Array Transaction -> Widget HTML a
-results names transactions = D.div [] [
-    D.table [] (
+results names transactions = D.div [ P.className "container" ] [
+    D.table [ P.className "table" ] (
         [ D.tr []
             [ D.th [] [ D.text "Name" ]
             , D.th [] [ D.text "Paid" ]
@@ -186,6 +200,7 @@ main = runWidgetInDom "root" $ go initialState where
             RowEvent i (SetNote s)         -> go $ unsafeModifyAt i (unsafeMutate (\et -> et { note=s })) state
             RowEvent i DeleteRow           -> go $ unsafeDeleteAt i state
             RowEvent i FinalizeRow         -> go $ unsafeModifyAt i unsafeFinalize state
+            RowEvent i EditRow             -> go $ unsafeModifyAt i unsafeEdit state
             AddRowEvent -> go (snoc state defaultTransaction)
 
     toggleSetItem :: ∀ a. Ord a => a -> S.Set a -> S.Set a
@@ -209,5 +224,14 @@ main = runWidgetInDom "root" $ go initialState where
         , targets: fromMaybe' (\_ -> unsafeCrashWith "Tried to finalize without targets.") $ NS.fromSet t.targets
         , amount: fromMaybe' (\_ -> unsafeCrashWith "Tried to finalize with non-numeric amount.") $ fromString t.amount
         , note: t.note
-    }
+        }
     unsafeFinalize (FinalTrans _) = unsafeCrashWith "Finalized already-finalized transaction."
+
+    unsafeEdit :: Transaction -> Transaction
+    unsafeEdit (FinalTrans t) = EditedTrans
+        { source: t.source
+        , targets: NS.toSet t.targets
+        , amount: formatCurrency t.amount
+        , note: t.note
+        }
+    unsafeEdit (EditedTrans t) = unsafeCrashWith "Finalized already-finalized transaction."
