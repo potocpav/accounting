@@ -176,7 +176,7 @@ defaultTransaction = EditedTrans
     { source: "Evča"
     , targets: S.empty
     , amount: "200.00"
-    , note: "Testing transaction"
+    , note: "Testing"
     }
 
 
@@ -188,7 +188,7 @@ main :: Effect Unit
 main = runWidgetInDom "root" $ go initialState where
     go :: ∀ a. Array Transaction -> Widget HTML a
     go state = do
-        let names = ["Evča", "Pavel", "Jíťa", "Péťa", "Stano"]
+        let names = ["Evča", "Pavel", "Jíťa", "Péťa", "Stanqax"]
         event <- table names state <|> results names state
 
         liftEffect $ log (show event)

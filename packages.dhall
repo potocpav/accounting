@@ -116,6 +116,21 @@ let upstream =
 
 let overrides = {=}
 
-let additions = {=}
+let additions =
+  { express =
+      mkPackage
+        [ "aff"
+      	, "effect"
+      	, "console"
+      	, "foreign"
+      	, "foreign-generic"
+      	, "node-http"
+      	, "psci-support"
+      	, "test-unit"
+      	]
+        "https://github.com/nkly/purescript-express.git"
+        "v0.8.0"
+  }
+
 
 in  upstream // overrides // additions

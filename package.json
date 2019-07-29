@@ -3,14 +3,18 @@
   "version": "0.1.0",
   "description": "A Starter kit for Purescript-Concur. Uses Spago and Parcel.",
   "main": "index.js",
+  "browserslist": [
+    "last 2 Chrome versions"
+  ],
   "scripts": {
     "test": "spago test",
     "clean": "rimraf .cache .spago .psci_modules output .pulp-cache prod dist",
     "build": "spago build",
     "dev": "rimraf dist && spago build && parcel build --public-url ./ index.html",
     "prod": "rimraf prod dist && mkdir prod && spago bundle --main Main --to prod/index.prod.js && java -jar closure-compiler/closure-compiler-v20190301.jar --js prod/index.prod.js --js_output_file prod/index.js && cp index.html prod/index.html && parcel build --public-url ./ prod/index.html && rimraf prod",
-    "start": "spago build && parcel index.html",
-    "watch": "spago build && parcel watch index.html"
+    "startOld": "spago build && parcel index.html",
+    "start": "node server.js",
+    "watch": "spago build && parcel watch index.js"
   },
   "author": "Anupam Jain <ajnsit@gmail.com> (https://github.com/ajnsit)",
   "license": "MIT",
@@ -22,6 +26,7 @@
     "spago": "^0.7.7"
   },
   "dependencies": {
+    "express": "^4.17.1",
     "react": "^16.8.6",
     "react-dom": "^16.8.6"
   }

@@ -5,7 +5,7 @@ You can edit this file as you like.
 { name =
     "accounting"
 , dependencies =
-    [ "effect", "console", "concur-react", "ordered-collections", "generics-rep", "numbers", "formatters" ]
+    [ "effect", "console", "concur-react", "ordered-collections", "generics-rep", "numbers", "formatters", "express" ]
 , packages =
     ./packages.dhall
 }
