@@ -11,7 +11,7 @@ import Node.Express.Types (Application)
 
 
 wowHandler :: Handler
-wowHandler = send "WOW"
+wowHandler = send "WOW!"
 
 
 app :: App
